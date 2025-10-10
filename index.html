@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SUPERHERO Max 변동폭 랭킹 (3~6개월 · Low 22)</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: black;
+      color: white;
+      font-family: sans-serif;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+    }
+    body {
+      transform: scale(0.68);
+      transform-origin: top left;
+      width: 133.33%;
+      height: 133.33%;
+      padding: 40px;
+    }
+    #time { margin-bottom: 20px; font-size: 16px; color: #cccccc; }
+    #countdown { margin-left: 20px; color: #888; }
+  </style>
+</head>
+<body>
+  <h1 style="font-size: 26px; font-weight: bold;">
+    ■ SUPERHERO Max 변동폭 랭킹 (3~6개월 · Low 22) ■
+  </h1>
+
+  <div id="time">
+    UTC 시간 로딩 중... <span id="countdown">다음 갱신까지 60s</span>
+  </div>
+  <svg id="chart" width="1000" height="1300"></svg>
+
+  <script>
+    // ✅ 3~6개월 랭킹 API
+    const API_URL = "https://binance-flask-app-production.up.railway.app/recent_3to6m_maxrange_ranked";
+
+    const rowHeight   = 46;
+    const barHeight   = 26;
+    const volLabelY   = barHeight / 2;
+    const volBarStart = 200;
+    const volBarMaxW  = 600;
+
+    const vol2BarHeight = 8;
+    const vol2BarY      = barHeight + 6;
+    const turnBarMaxW   = 550;
+
+    const svg = d3.select("#chart");
+    let previousDataMap = new Map();
+    let secondsToNextUpdate = 60;
+
+    function formatCompact(num) {
+      if (num >= 1e12) return (num / 1e12).toFixed(2) + "T";
+      if (num >= 1e9)  return (num / 1e9 ).toFixed(2) + "B";
+      if (num >= 1e6)  return (num / 1e6 ).toFixed(2) + "M";
+      if (num >= 1e3)  return (num / 1e3 ).toFixed(2) + "K";
+      return (num || 0).toFixed(0);
+    }
+
+    function updateTimeLabel() {
+      const now = new Date();
+      const y = now.getUTCFullYear();
+      const m = String(now.getUTCMonth() + 1).padStart(2, '0');
+      const d = String(now.getUTCDate()).padStart(2, '0');
+      const h = String(now.getUTCHours()).padStart(2, '0');
+      const mm = String(now.getUTCMinutes()).padStart(2, '0');
+      document.getElementById("time").childNodes[0].textContent = `${y}-${m}-${d} ${h}:${mm} UTC`;
+    }
+
+    function startCountdown() {
+      setInterval(() => {
+        secondsToNextUpdate--;
+        if (secondsToNextUpdate <= 0) secondsToNextUpdate = 60;
+        document.getElementById("countdown").textContent = `다음 갱신까지 ${secondsToNextUpdate}s`;
+      }, 1000);
+    }
+
+    async function fetchData() {
+      const res = await fetch(API_URL);
+      const json = await res.json();
+      return Array.isArray(json) ? json : (json.data || []);
+    }
+
+    function getColorHex(name) {
+      return name === "green" ? "#00ff88" : "#ff3366";
+    }
+
+    async function updateChart() {
+      updateTimeLabel();
+      secondsToNextUpdate = 60;
+
+      let data = await fetchData();
+      if (!data || data.length === 0) return;
+
+      // ✅ 낮은 변동폭 순 정렬 (오름차순) → Low 22
+      data = data
+        .slice()
+        .sort((a, b) => (a.max_range_pct || 0) - (b.max_range_pct || 0))
+        .slice(0, 22);
+
+      const maxRange   = d3.max(data, d => Math.max(0, d.max_range_pct || 0));
+      const maxTurnAvg = d3.max(data, d => Math.max(0, d.avg_turnover_usdt || 0));
+
+      svg.attr("height", data.length * rowHeight + 50);
+
+      const group = svg.selectAll("g.row")
+        .data(data, d => d.symbol);
+
+      const groupEnter = group.enter()
+        .append("g")
+        .attr("class", "row")
+        .attr("transform", (d, i) => `translate(50, ${i * rowHeight})`);
+
+      groupEnter.append("text")
+        .attr("class", "rank-change")
+        .attr("x", 0)
+        .attr("y", volLabelY)
+        .attr("dy", ".35em")
+        .attr("text-anchor", "start")
+        .style("font-size", "14px")
+        .style("opacity", 0)
+        .attr("fill", "white");
+
+      groupEnter.append("text")
+        .attr("class", "label")
+        .attr("x", 50)
+        .attr("y", volLabelY)
+        .attr("dy", ".35em")
+        .attr("text-anchor", "start")
+        .attr("fill", "white")
+        .style("font-weight", "bold")
+        .style("cursor", "pointer")
+        .style("opacity", 0)
+        .on("click", (event, d) => {
+          const url = `https://www.binance.com/en/futures/${d.symbol}`;
+          window.open(url, "_blank");
+        });
+
+      groupEnter.append("rect")
+        .attr("class", "bar-vol")
+        .attr("x", volBarStart)
+        .attr("y", 0)
+        .attr("height", barHeight)
+        .attr("fill", "#00ff88")
+        .attr("width", 0);
+
+      groupEnter.append("text")
+        .attr("class", "value-vol")
+        .attr("x", volBarStart + 10)
+        .attr("y", volLabelY)
+        .attr("dy", ".35em")
+        .attr("fill", "white")
+        .style("opacity", 0);
+
+      groupEnter.append("rect")
+        .attr("class", "bar-turnover")
+        .attr("x", volBarStart)
+        .attr("y", vol2BarY)
+        .attr("height", vol2BarHeight)
+        .attr("fill", "#ffffff")
+        .attr("opacity", 1)
+        .attr("width", 0);
+
+      groupEnter.append("text")
+        .attr("class", "value-turnover")
+        .attr("x", volBarStart + 10)
+        .attr("y", vol2BarY + vol2BarHeight / 2)
+        .attr("dy", ".35em")
+        .attr("fill", "#cccccc")
+        .style("font-size", "12px")
+        .style("opacity", 0);
+
+      const merged = groupEnter.merge(group);
+      merged.transition().duration(1000)
+        .attr("transform", (d, i) => `translate(50, ${i * rowHeight})`);
+
+      merged.each(function(d, i) {
+        const g = d3.select(this);
+
+        const safeRange = Math.max(0, d.max_range_pct || 0);
+        const rangeW    = maxRange > 0 ? (safeRange / maxRange) * volBarMaxW : 0;
+
+        const avgTurn   = Math.max(0, d.avg_turnover_usdt || 0);
+        const turnW     = maxTurnAvg > 0 ? (avgTurn / maxTurnAvg) * turnBarMaxW : 0;
+
+        g.select("rect.bar-vol")
+          .transition().duration(1000)
+          .attr("width", rangeW)
+          .attr("fill", getColorHex(d.color));
+
+        g.select("text.value-vol")
+          .transition().duration(1000)
+          .style("opacity", 1)
+          .tween("text", function() {
+            const prev = previousDataMap.get(d.symbol);
+            const start = prev ? (prev.max_range_pct || 0) : 0;
+            const iNum = d3.interpolateNumber(start, safeRange);
+            return function(t) {
+              this.textContent = `${iNum(t).toFixed(2)}%`;
+            };
+          })
+          .attr("x", volBarStart + Math.max(10, rangeW + 10))
+          .attr("text-anchor", "start");
+
+        g.select("text.label")
+          .text(" " + d.symbol)
+          .transition().duration(1000)
+          .style("opacity", 1);
+
+        g.select("rect.bar-turnover")
+          .transition().duration(1000)
+          .attr("width", turnW);
+
+        g.select("text.value-turnover")
+          .text(`${formatCompact(avgTurn)} USDT / day`)
+          .transition().duration(1000)
+          .style("opacity", 1)
+          .attr("x", volBarStart + Math.max(10, turnW + 10))
+          .attr("text-anchor", "start");
+
+        const prev = previousDataMap.get(d.symbol);
+        const rankText = g.select("text.rank-change");
+        if (!prev) {
+          rankText.text("NEW").attr("fill", "white");
+        } else {
+          const diff = prev.rank - i;
+          if (diff === 0) {
+            rankText.text("=").attr("fill", "#cccccc");
+          } else {
+            const arrow = diff > 0 ? "▲" : "▼";
+            const color = diff > 0 ? "#00ff88" : "#ff3366";
+            rankText.text(`${arrow}${Math.abs(diff)}`).attr("fill", color);
+          }
+        }
+        rankText.transition().duration(1000).style("opacity", 1);
+      });
+
+      group.exit().remove();
+      previousDataMap.clear();
+      data.forEach((d, i) => previousDataMap.set(d.symbol, { ...d, rank: i }));
+    }
+
+    updateChart();
+    setInterval(updateChart, 60 * 1000);
+    startCountdown();
+  </script>
+</body>
+</html>
